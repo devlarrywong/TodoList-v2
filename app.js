@@ -3,6 +3,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
+var _ = require('lodash');
 
 const app = express();
 
@@ -39,46 +40,94 @@ const item3 = new Item({
 
 const defaultItems = [item1, item2, item3];
 
+const listSchema = {
+  name: String,
+  items: [itemsSchema],
+};
+
+const List = mongoose.model('List', listSchema);
+
 app.get('/', function (req, res) {
   Item.find({}, (err, foundItems) => {
-    if (err) {
-      console.log(err);
+    if (foundItems.length === 0) {
+      Item.insertMany(defaultItems, (err) => {
+        if (err) {
+          console.log(err);
+        } else {
+          console.log('success');
+        }
+      });
+      res.redirect('/');
     } else {
-      if (foundItems.length === 0) {
-        Item.insertMany(defaultItems, (err) => {
-          if (err) {
-            console.log(err);
-          } else {
-            console.log('success');
-          }
-        });
-        res.redirect('/');
-      } else {
-        res.render('list', { listTitle: 'Today', newListItems: foundItems });
-      }
+      res.render('list', { listTitle: 'Today', newListItems: foundItems });
     }
   });
 });
 
 app.post('/', function (req, res) {
   const itemName = req.body.newItem;
+  const listName = req.body.list;
 
   const item = new Item({
     name: itemName,
   });
 
-  item.save();
-  res.redirect('/');
+  if (listName === 'Today') {
+    item.save();
+    res.redirect('/');
+  } else {
+    List.findOne({ name: listName }, function (err, foundList) {
+      foundList.items.push(item);
+      foundList.save();
+      res.redirect('/' + listName);
+    });
+  }
 });
 
 app.post('/delete', function (req, res) {
   const checkedItemId = req.body.checkbox;
-  Item.findByIdAndDelete(checkedItemId, function (err) {
-    if (err) {
-      console.log(err);
-    } else {
-      console.log('successfully delete that items');
-      res.redirect('/');
+  const listName = req.body.listName;
+
+  if (listName === 'Today') {
+    Item.findByIdAndRemove(checkedItemId, function (err) {
+      if (!err) {
+        console.log('successfully delete that items');
+        res.redirect('/');
+      }
+    });
+  } else {
+    List.findOneAndUpdate(
+      { name: listName },
+      { $pull: { items: { _id: checkedItemId } } },
+      function (err, foundList) {
+        if (!err) {
+          res.redirect('/' + listName);
+        }
+      }
+    );
+  }
+});
+
+app.get('/:todoListName', function (req, res) {
+  const todoListName = _.capitalize(req.params.todoListName);
+
+  List.findOne({ name: todoListName }, function (err, results) {
+    if (!err) {
+      if (!results) {
+        // Create a new list
+        const list = new List({
+          name: todoListName,
+          items: defaultItems,
+        });
+        list.save();
+        res.redirect('/' + todoListName);
+      } else {
+        // Show an existing list
+        res.render('list', {
+          listTitle: results.name,
+          newListItems: results.items,
+        });
+      }
     }
   });
 });
